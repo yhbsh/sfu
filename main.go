@@ -31,7 +31,7 @@ type Packet struct {
 }
 
 type State struct {
-	id           string
+	ID           string
 	Clients      map[*Client]bool
 	VideoCodecID int
 	AudioCodecID int
@@ -40,31 +40,31 @@ type State struct {
 	Height       int
 	VideoExtra   []byte
 	AudioExtra   []byte
-	mu           sync.RWMutex
+	Mu           sync.RWMutex
 	Queue        chan Packet
 }
 
 type Server struct {
-	streams map[string]*State
-	mu      sync.RWMutex
+	Streams map[string]*State
+	Mu      sync.RWMutex
 }
 
 type Client struct {
-	conn     net.Conn
-	keyframe bool
-	streamID string
+	Conn     net.Conn
+	FoundKeyFrame bool
+	StreamID string
 }
 
 func NewServer() *Server {
 	return &Server{
-		streams: make(map[string]*State),
-		mu:      sync.RWMutex{},
+		Streams: make(map[string]*State),
+		Mu:      sync.RWMutex{},
 	}
 }
 
 func NewState(id string) *State {
 	return &State{
-		id:      id,
+		ID:      id,
 		Clients: make(map[*Client]bool),
 		Queue:   make(chan Packet, DefaultQueueLen),
 	}
@@ -181,11 +181,11 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 		}
 	}
 
-	server.mu.Lock()
-	state, ok := server.streams[streamID]
+	server.Mu.Lock()
+	state, ok := server.Streams[streamID]
 	if !ok {
 		state = NewState(streamID)
-		server.streams[streamID] = state
+		server.Streams[streamID] = state
 		go server.publisher(state)
 	}
 	state.VideoCodecID = int(videoCodecID)
@@ -195,7 +195,7 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 	state.Height = int(height)
 	state.VideoExtra = videoExtraData
 	state.AudioExtra = audioExtraData
-	server.mu.Unlock()
+	server.Mu.Unlock()
 
 	log.Printf("Push client connected, streamID=%s, videoCodecID=%d, audioCodecID=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
 		streamID, int(videoCodecID), int(audioCodecID), int(fps), len(videoExtraData), len(audioExtraData))
@@ -228,13 +228,13 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 
 		packet := Packet{Header: h, Payload: payload}
 
-		state.mu.RLock()
+		state.Mu.RLock()
 		select {
 		case state.Queue <- packet:
 		default:
 			log.Printf("Dropping packet for stream %s, queue full", streamID)
 		}
-		state.mu.RUnlock()
+		state.Mu.RUnlock()
 	}
 }
 
@@ -245,9 +245,9 @@ func handlePull(conn net.Conn, header map[string]any, server *Server) {
 		return
 	}
 
-	server.mu.RLock()
-	state, ok := server.streams[streamID]
-	server.mu.RUnlock()
+	server.Mu.RLock()
+	state, ok := server.Streams[streamID]
+	server.Mu.RUnlock()
 	if !ok {
 		log.Println("Pull client requested unknown stream:", streamID)
 		return
@@ -290,7 +290,7 @@ func handlePull(conn net.Conn, header map[string]any, server *Server) {
 	log.Printf("Pull client connected, streamID=%s, videoCodecID=%d, audioCodecID=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
 		streamID, state.VideoCodecID, state.AudioCodecID, state.FPS, len(state.VideoExtra), len(state.AudioExtra))
 
-	client := &Client{conn: conn, keyframe: false, streamID: streamID}
+	client := &Client{Conn: conn, FoundKeyFrame: false, StreamID: streamID}
 	server.addClient(client)
 	defer server.removeClient(client, streamID)
 
@@ -304,29 +304,29 @@ func handlePull(conn net.Conn, header map[string]any, server *Server) {
 }
 
 func (server *Server) addClient(client *Client) {
-	server.mu.Lock()
-	state, ok := server.streams[client.streamID]
+	server.Mu.Lock()
+	state, ok := server.Streams[client.StreamID]
 	if !ok {
-		state = NewState(client.streamID)
-		server.streams[client.streamID] = state
+		state = NewState(client.StreamID)
+		server.Streams[client.StreamID] = state
 		go server.publisher(state)
 	}
-	state.mu.Lock()
+	state.Mu.Lock()
 	state.Clients[client] = true
-	state.mu.Unlock()
-	server.mu.Unlock()
+	state.Mu.Unlock()
+	server.Mu.Unlock()
 }
 
 func (server *Server) removeClient(client *Client, streamID string) {
-	server.mu.Lock()
-	state, ok := server.streams[streamID]
+	server.Mu.Lock()
+	state, ok := server.Streams[streamID]
 	if ok {
-		state.mu.Lock()
+		state.Mu.Lock()
 		delete(state.Clients, client)
-		state.mu.Unlock()
+		state.Mu.Unlock()
 	}
-	server.mu.Unlock()
-	client.conn.Close()
+	server.Mu.Unlock()
+	client.Conn.Close()
 }
 
 func (server *Server) publishPacket(pkt Packet, client *Client) error {
@@ -337,10 +337,10 @@ func (server *Server) publishPacket(pkt Packet, client *Client) error {
 	binary.LittleEndian.PutUint32(header[20:24], uint32(pkt.Header.Flags))
 	binary.LittleEndian.PutUint32(header[24:28], uint32(pkt.Header.Size))
 
-	if _, err := client.conn.Write(header); err != nil {
+	if _, err := client.Conn.Write(header); err != nil {
 		return err
 	}
-	if _, err := client.conn.Write(pkt.Payload); err != nil {
+	if _, err := client.Conn.Write(pkt.Payload); err != nil {
 		return err
 	}
 	return nil
@@ -349,19 +349,19 @@ func (server *Server) publishPacket(pkt Packet, client *Client) error {
 func (server *Server) publisher(state *State) {
 	for pkt := range state.Queue {
 		logPacket(pkt)
-		state.mu.RLock()
+		state.Mu.RLock()
 		for client := range state.Clients {
-			if pkt.Header.StreamIndex == 0 && !client.keyframe {
+			if pkt.Header.StreamIndex == 0 && !client.FoundKeyFrame {
 				if pkt.Header.Flags&1 == 0 {
 					continue
 				}
-				client.keyframe = true
+				client.FoundKeyFrame = true
 			}
 			if err := server.publishPacket(pkt, client); err != nil {
 				log.Printf("Failed to send packet to client: %v", err)
 			}
 		}
-		state.mu.RUnlock()
+		state.Mu.RUnlock()
 	}
 }
 
