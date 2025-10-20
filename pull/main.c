@@ -16,8 +16,8 @@
 #include <libavutil/time.h>
 #include <libswscale/swscale.h>
 
-#define W 1280
-#define H 720
+#define W 640
+#define H 360
 
 static inline char *json_get_string(const char *json, const char *key) {
     char pattern[128];

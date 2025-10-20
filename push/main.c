@@ -313,6 +313,8 @@ int main(int argc, char **argv) {
             }
         }
 
+		usleep(1e3*8);
+
         av_packet_unref(ipkt);
         av_packet_free(&ipkt);
     }
