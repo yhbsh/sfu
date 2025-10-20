@@ -10,6 +10,13 @@ import (
 	"sync"
 )
 
+const (
+	MaxPacketSize   = 100_000_000
+	DefaultQueueLen = 1024
+	ListenAddr      = "0.0.0.0:1935"
+	HeaderSize      = 28
+)
+
 type Header struct {
 	Pts         int64
 	Dts         int64
@@ -23,48 +30,56 @@ type Packet struct {
 	Payload []byte
 }
 
+type State struct {
+	id           string
+	Clients      map[*Client]bool
+	VideoCodecID int
+	AudioCodecID int
+	FPS          int
+	Width        int
+	Height       int
+	VideoExtra   []byte
+	AudioExtra   []byte
+	mu           sync.RWMutex
+	Queue        chan Packet
+}
+
 type Server struct {
-	clients        map[string]map[*Client]bool
-	videoCodecs    map[string]int
-	audioCodecs    map[string]int
-	fps            map[string]int
-	//accessUnits    map[string][]Packet
-	widths         map[string]int
-	heights        map[string]int
-	queues         map[string]chan Packet
-	videoExtraData map[string][]byte
-	audioExtraData map[string][]byte
-	mu             *sync.RWMutex
+	streams map[string]*State
+	mu      sync.RWMutex
 }
 
 type Client struct {
 	conn     net.Conn
 	keyframe bool
-	streamId string
+	streamID string
+}
+
+func NewServer() *Server {
+	return &Server{
+		streams: make(map[string]*State),
+		mu:      sync.RWMutex{},
+	}
+}
+
+func NewState(id string) *State {
+	return &State{
+		id:      id,
+		Clients: make(map[*Client]bool),
+		Queue:   make(chan Packet, DefaultQueueLen),
+	}
 }
 
 func main() {
-	server := &Server{
-		clients:        make(map[string]map[*Client]bool),
-		videoCodecs:    make(map[string]int),
-		audioCodecs:    make(map[string]int),
-		fps:            make(map[string]int),
-		//accessUnits:    make(map[string][]Packet),
-		widths:         make(map[string]int),
-		heights:        make(map[string]int),
-		queues:         make(map[string]chan Packet),
-		videoExtraData: make(map[string][]byte),
-		audioExtraData: make(map[string][]byte),
-		mu:             &sync.RWMutex{},
-	}
+	server := NewServer()
 
-	ln, err := net.Listen("tcp", "0.0.0.0:1935")
+	ln, err := net.Listen("tcp", ListenAddr)
 	if err != nil {
 		panic(err)
 	}
 	defer ln.Close()
 
-	log.Println("Server listening on 0.0.0.0:1935")
+	log.Println("Server listening on", ListenAddr)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -110,19 +125,19 @@ func handleConnection(conn net.Conn, server *Server) {
 }
 
 func handlePush(conn net.Conn, header map[string]any, server *Server) {
-	streamId, ok := header["stream_id"].(string)
+	streamID, ok := header["stream_id"].(string)
 	if !ok {
 		log.Println("Invalid input, missing stream_id")
 		return
 	}
 
-	videoCodecId, ok := header["video_codec_id"].(float64)
+	videoCodecID, ok := header["video_codec_id"].(float64)
 	if !ok {
 		log.Println("Invalid input, missing video_codec_id")
 		return
 	}
 
-	audioCodecId, ok := header["audio_codec_id"].(float64)
+	audioCodecID, ok := header["audio_codec_id"].(float64)
 	if !ok {
 		log.Println("Invalid input, missing audio_codec_id")
 		return
@@ -167,32 +182,32 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 	}
 
 	server.mu.Lock()
-	server.videoCodecs[streamId] = int(videoCodecId)
-	server.audioCodecs[streamId] = int(audioCodecId)
-	server.videoExtraData[streamId] = videoExtraData
-	server.audioExtraData[streamId] = audioExtraData
-	server.widths[streamId] = int(width)
-	server.heights[streamId] = int(height)
-	server.fps[streamId] = int(fps)
-
-	if server.queues[streamId] == nil {
-		server.queues[streamId] = make(chan Packet)
-		go server.publisher(streamId)
+	state, ok := server.streams[streamID]
+	if !ok {
+		state = NewState(streamID)
+		server.streams[streamID] = state
+		go server.publisher(state)
 	}
-
+	state.VideoCodecID = int(videoCodecID)
+	state.AudioCodecID = int(audioCodecID)
+	state.FPS = int(fps)
+	state.Width = int(width)
+	state.Height = int(height)
+	state.VideoExtra = videoExtraData
+	state.AudioExtra = audioExtraData
 	server.mu.Unlock()
 
-	log.Printf("Push client connected, streamId=%s, videoCodecId=%d, audioCodecId=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
-		streamId, int(videoCodecId), int(audioCodecId), int(fps), len(videoExtraData), len(audioExtraData))
+	log.Printf("Push client connected, streamID=%s, videoCodecID=%d, audioCodecID=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
+		streamID, int(videoCodecID), int(audioCodecID), int(fps), len(videoExtraData), len(audioExtraData))
 
 	for {
-		bytes := make([]byte, 28)
+		bytes := make([]byte, HeaderSize)
 		if _, err := io.ReadFull(conn, bytes); err != nil {
-			log.Printf("Push client disconnected, streamId: %s", streamId)
+			log.Printf("Push client disconnected, streamID: %s", streamID)
 			break
 		}
 
-		header := Header{
+		h := Header{
 			Pts:         int64(binary.LittleEndian.Uint64(bytes[0:8])),
 			Dts:         int64(binary.LittleEndian.Uint64(bytes[8:16])),
 			StreamIndex: int32(binary.LittleEndian.Uint32(bytes[16:20])),
@@ -200,99 +215,59 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 			Size:        int32(binary.LittleEndian.Uint32(bytes[24:28])),
 		}
 
-		if header.Size < 0 || header.Size > 100_000_000 {
-			log.Printf("Invalid packet size: %d, disconnecting client %s", header.Size, conn.RemoteAddr().String())
+		if h.Size < 0 || h.Size > MaxPacketSize {
+			log.Printf("Invalid packet size: %d, disconnecting client %s", h.Size, conn.RemoteAddr().String())
 			break
 		}
 
-		payload := make([]byte, header.Size)
+		payload := make([]byte, h.Size)
 		if _, err := io.ReadFull(conn, payload); err != nil {
-			log.Printf("Push client disconnected, streamId: %s", streamId)
+			log.Printf("Push client disconnected, streamID: %s", streamID)
 			break
 		}
 
-		packet := Packet{Header: header, Payload: payload}
+		packet := Packet{Header: h, Payload: payload}
 
-		//server.mu.Lock()
-		//if header.StreamIndex == 0 && header.Flags&1 != 0 {
-		//	server.accessUnits[streamId] = []Packet{packet}
-		//} else {
-		//	if au, ok := server.accessUnits[streamId]; ok && len(au) > 0 {
-		//		server.accessUnits[streamId] = append(au, packet)
-		//	}
-		//}
-		//server.mu.Unlock()
-
-		server.mu.RLock()
-		queue := server.queues[streamId]
-		server.mu.RUnlock()
-		queue <- packet
+		state.mu.RLock()
+		select {
+		case state.Queue <- packet:
+		default:
+			log.Printf("Dropping packet for stream %s, queue full", streamID)
+		}
+		state.mu.RUnlock()
 	}
 }
 
 func handlePull(conn net.Conn, header map[string]any, server *Server) {
-	streamId, ok := header["stream_id"].(string)
+	streamID, ok := header["stream_id"].(string)
 	if !ok {
 		log.Println("Invalid input, missing stream_id")
 		return
 	}
 
 	server.mu.RLock()
-	videoCodecId, ok := server.videoCodecs[streamId]
-	if !ok {
-		log.Println("Pull client requested unknown stream:", streamId)
-		server.mu.RUnlock()
-		return
-	}
-
-	audioCodecId, ok := server.audioCodecs[streamId]
-	if !ok {
-		log.Println("Pull client requested unknown stream:", streamId)
-		server.mu.RUnlock()
-		return
-	}
-
-	fps, ok := server.fps[streamId]
-	if !ok {
-		log.Println("Pull client requested unknown stream:", streamId)
-		server.mu.RUnlock()
-		return
-	}
-
-	width, ok := server.widths[streamId]
-	if !ok {
-		log.Println("Pull client requested unknown stream:", streamId)
-		server.mu.RUnlock()
-		return
-	}
-
-	height, ok := server.heights[streamId]
-	if !ok {
-		log.Println("Pull client requested unknown stream:", streamId)
-		server.mu.RUnlock()
-		return
-	}
-
-	videoExtraData := server.videoExtraData[streamId]
-	audioExtraData := server.audioExtraData[streamId]
-	//accessUnit, hasAU := server.accessUnits[streamId]
+	state, ok := server.streams[streamID]
 	server.mu.RUnlock()
+	if !ok {
+		log.Println("Pull client requested unknown stream:", streamID)
+		return
+	}
 
 	resp := map[string]any{
-		"stream_id":      streamId,
-		"video_codec_id": videoCodecId,
-		"audio_codec_id": audioCodecId,
-		"fps":            fps,
-		"height":         height,
-		"width":          width,
+		"stream_id":      streamID,
+		"video_codec_id": state.VideoCodecID,
+		"audio_codec_id": state.AudioCodecID,
+		"fps":            state.FPS,
+		"height":         state.Height,
+		"width":          state.Width,
 	}
 
-	if len(videoExtraData) > 0 {
-		resp["video_extradata"] = base64.StdEncoding.EncodeToString(videoExtraData)
+	if len(state.VideoExtra) > 0 {
+		resp["video_extradata"] = base64.StdEncoding.EncodeToString(state.VideoExtra)
 	}
 
-	if len(audioExtraData) > 0 {
-		resp["audio_extradata"] = base64.StdEncoding.EncodeToString(audioExtraData)
+	if len(state.AudioExtra) > 0 {
+		resp["audio_extradata"] = base64.StdEncoding.EncodeToString(state.AudioExtra)
 	}
 
 	data, err := json.Marshal(resp)
@@ -312,41 +287,17 @@ func handlePull(conn net.Conn, header map[string]any, server *Server) {
 		return
 	}
 
-	log.Printf("Pull client connected, streamId=%s, videoCodecId=%d, audioCodecId=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
-		streamId, videoCodecId, audioCodecId, fps, len(videoExtraData), len(audioExtraData))
+	log.Printf("Pull client connected, streamID=%s, videoCodecID=%d, audioCodecID=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
+		streamID, state.VideoCodecID, state.AudioCodecID, state.FPS, len(state.VideoExtra), len(state.AudioExtra))
 
-	//if hasAU && len(accessUnit) > 0 {
-	//	for _, pkt := range accessUnit {
-	//		headerBytes := make([]byte, 28)
-	//		binary.LittleEndian.PutUint64(headerBytes[0:8], uint64(pkt.Header.Pts))
-	//		binary.LittleEndian.PutUint64(headerBytes[8:16], uint64(pkt.Header.Dts))
-	//		binary.LittleEndian.PutUint32(headerBytes[16:20], uint32(pkt.Header.StreamIndex))
-	//		binary.LittleEndian.PutUint32(headerBytes[20:24], uint32(pkt.Header.Flags))
-	//		binary.LittleEndian.PutUint32(headerBytes[24:28], uint32(pkt.Header.Size))
-
-	//		if _, err := conn.Write(headerBytes); err != nil {
-	//			log.Println("Failed to send AU header to pull client:", err)
-	//			return
-	//		}
-
-	//		if _, err := conn.Write(pkt.Payload); err != nil {
-	//			log.Println("Failed to send AU payload to pull client:", err)
-	//			return
-	//		}
-	//	}
-	//	log.Printf("Sent initial access unit to pull client, streamId=%s, packets=%d", streamId, len(accessUnit))
-	//} else {
-	//	log.Printf("No access unit available yet for streamId=%s", streamId)
-	//}
-
-	client := &Client{conn: conn, keyframe: false, streamId: streamId}
+	client := &Client{conn: conn, keyframe: false, streamID: streamID}
 	server.addClient(client)
-	defer server.removeClient(client, streamId)
+	defer server.removeClient(client, streamID)
 
 	buf := make([]byte, 1)
 	for {
 		if _, err := conn.Read(buf); err != nil {
-			log.Printf("Pull client disconnected, streamId: %s, codecId: %d", streamId, videoCodecId)
+			log.Printf("Pull client disconnected, streamID: %s", streamID)
 			return
 		}
 	}
@@ -354,49 +305,63 @@ func handlePull(conn net.Conn, header map[string]any, server *Server) {
 
 func (server *Server) addClient(client *Client) {
 	server.mu.Lock()
-	if server.clients[client.streamId] == nil {
-		server.clients[client.streamId] = make(map[*Client]bool)
+	state, ok := server.streams[client.streamID]
+	if !ok {
+		state = NewState(client.streamID)
+		server.streams[client.streamID] = state
+		go server.publisher(state)
 	}
-	server.clients[client.streamId][client] = true
+	state.mu.Lock()
+	state.Clients[client] = true
+	state.mu.Unlock()
 	server.mu.Unlock()
 }
 
-func (server *Server) removeClient(client *Client, streamId string) {
+func (server *Server) removeClient(client *Client, streamID string) {
 	server.mu.Lock()
-	delete(server.clients[streamId], client)
-	if len(server.clients[streamId]) == 0 {
-		delete(server.clients, streamId)
+	state, ok := server.streams[streamID]
+	if ok {
+		state.mu.Lock()
+		delete(state.Clients, client)
+		state.mu.Unlock()
 	}
 	server.mu.Unlock()
 	client.conn.Close()
 }
 
-func (server *Server) publisher(streamId string) {
-	for pkt := range server.queues[streamId] {
-		logPacket(pkt)
+func (server *Server) publishPacket(pkt Packet, client *Client) error {
+	header := make([]byte, HeaderSize)
+	binary.LittleEndian.PutUint64(header[0:8], uint64(pkt.Header.Pts))
+	binary.LittleEndian.PutUint64(header[8:16], uint64(pkt.Header.Dts))
+	binary.LittleEndian.PutUint32(header[16:20], uint32(pkt.Header.StreamIndex))
+	binary.LittleEndian.PutUint32(header[20:24], uint32(pkt.Header.Flags))
+	binary.LittleEndian.PutUint32(header[24:28], uint32(pkt.Header.Size))
 
-		server.mu.RLock()
-		clients := server.clients[streamId]
-		for client := range clients {
+	if _, err := client.conn.Write(header); err != nil {
+		return err
+	}
+	if _, err := client.conn.Write(pkt.Payload); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (server *Server) publisher(state *State) {
+	for pkt := range state.Queue {
+		logPacket(pkt)
+		state.mu.RLock()
+		for client := range state.Clients {
 			if pkt.Header.StreamIndex == 0 && !client.keyframe {
-				if pkt.Header.Flags & 1 == 0 {
+				if pkt.Header.Flags&1 == 0 {
 					continue
 				}
-
 				client.keyframe = true
 			}
-
-			header := make([]byte, 28)
-			binary.LittleEndian.PutUint64(header[0:8], uint64(pkt.Header.Pts))
-			binary.LittleEndian.PutUint64(header[8:16], uint64(pkt.Header.Dts))
-			binary.LittleEndian.PutUint32(header[16:20], uint32(pkt.Header.StreamIndex))
-			binary.LittleEndian.PutUint32(header[20:24], uint32(pkt.Header.Flags))
-			binary.LittleEndian.PutUint32(header[24:28], uint32(pkt.Header.Size))
-
-			client.conn.Write(header)
-			client.conn.Write(pkt.Payload)
+			if err := server.publishPacket(pkt, client); err != nil {
+				log.Printf("Failed to send packet to client: %v", err)
+			}
 		}
-		server.mu.RUnlock()
+		state.mu.RUnlock()
 	}
 }
 
