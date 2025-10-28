@@ -1,0 +1,12 @@
+cc = clang
+
+cflags = -O2
+ldflags = -lraylib -lavcodec -lavformat -lvpx -lavfilter -lavdevice -lswresample -lswscale -lavutil -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreMedia -framework CoreFoundation -framework Security -framework CoreGraphics -framework Foundation
+
+rule cc
+  command = $cc $cflags $in -o $out $ldflags
+  description = CC $out
+
+build main: cc main.c
+
+default main

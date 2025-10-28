@@ -79,8 +79,8 @@ static void *writer_proc(void *arg) {
              "{\"mode\":\"push\",\"stream_id\":\"%s\",\"video_codec_id\":%d,"
              "\"audio_codec_id\":%d,\"fps\":%d,\"width\":%d,\"height\":%d,"
              "\"sample_rate\":%d,\"channels\":%d}",
-             ctx->stream_id, ctx->video_encoder ? ctx->video_encoder_id : 0,
-             ctx->audio_encoder ? ctx->audio_encoder_id : 0,
+             ctx->stream_id, ctx->video_encoder ? ctx->video_encoder_id : AV_CODEC_ID_H264,
+             ctx->audio_encoder ? ctx->audio_encoder_id : AV_CODEC_ID_AAC,
              ctx->video_encoder ? ctx->fps : 0,
              ctx->video_encoder ? ctx->video_encoder->width : 0,
              ctx->video_encoder ? ctx->video_encoder->height : 0,
@@ -131,8 +131,8 @@ static void *writer_proc(void *arg) {
 
 int main(int argc, char **argv) {
     avdevice_register_all();
-    const char *addr = (argc >= 2) ? argv[1] : "127.0.0.1";
-    const char *stream_id = (argc >= 3) ? argv[2] : "camera_stream";
+    const char *addr = (argc >= 2) ? argv[1] : "livsho.com";
+    const char *stream_id = (argc >= 3) ? argv[2] : "stream";
 
     Media ctx = {0};
 
@@ -141,19 +141,21 @@ int main(int argc, char **argv) {
     ctx.address = addr;
     ctx.stream_id = stream_id;
     ctx.port = 1935;
-    ctx.video_encoder_id = AV_CODEC_ID_VP8;
+    ctx.video_encoder_id = AV_CODEC_ID_H264;
     ctx.audio_encoder_id = AV_CODEC_ID_AAC;
-    ctx.vbitrate = 500 * 1000;
+    ctx.vbitrate = 1000 * 1000;
     ctx.abitrate = 128000;
-    ctx.fps = 120;
+    ctx.fps = 30;
     ctx.gop_size = 12;
     ctx.max_b_frames = 0;
     ctx.sample_rate = 48000;
     ctx.channels = 2;
     av_channel_layout_default(&ctx.ch_layout, 2);
 
-    const AVInputFormat *ifmt = av_find_input_format("lavfi");
-    int ret = avformat_open_input(&ctx.ifmt, "testsrc=size=1280x720", ifmt, NULL);
+    const AVInputFormat *ifmt = av_find_input_format("avfoundation");
+	AVDictionary *options = NULL;
+	av_dict_set(&options, "framerate", "30", 0);
+    int ret = avformat_open_input(&ctx.ifmt, "0", ifmt, &options);
     if (ret < 0) {
         fprintf(stderr, "ERROR: cannot open input. %s\n", av_err2str(ret));
         return -1;
