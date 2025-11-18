@@ -17,8 +17,8 @@
 #include <libavutil/time.h>
 #include <libswscale/swscale.h>
 
-#define H 1280*2/3
-#define W 720*2/3
+#define W 480*2
+#define H 270*2
 
 char *json_get_string(const char *json, const char *key);
 int64_t json_get_int(const char *json, const char *key, int64_t def);
@@ -45,7 +45,7 @@ typedef struct {
 int media_pull_init(MediaPull *ctx) {
     ctx->keep_alive_running = true;
     ctx->reader_running = true;
-    av_thread_message_queue_alloc(&ctx->queue, 1024, sizeof(AVPacket *));
+    av_thread_message_queue_alloc(&ctx->queue, 1024*1024, sizeof(AVPacket *));
 
     //av_log_set_level(AV_LOG_TRACE);
 
@@ -64,71 +64,76 @@ int media_pull_decode_render(MediaPull *ctx, Texture texture, int width, int hei
     AVPacket *pkt = NULL;
     if (av_thread_message_queue_recv(ctx->queue, &pkt, AV_THREAD_MESSAGE_NONBLOCK) < 0 || pkt->stream_index != 0) {
         BeginDrawing();
-		DrawTexture(texture, 0, 0, WHITE);
+        DrawTexture(texture, 0, 0, WHITE);
         EndDrawing();
         av_packet_free(&pkt);
         return 0;
     }
 
-    if (avcodec_send_packet(ctx->decoder, pkt) == 0) {
-        while (avcodec_receive_frame(ctx->decoder, ctx->frame) == 0) {
-            if (!ctx->sws_ctx) {
-                ctx->sws_ctx = sws_getContext(ctx->frame->width, ctx->frame->height, ctx->frame->format, width, height, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
-            }
+    int ret = avcodec_send_packet(ctx->decoder, pkt);
+    if (ret < 0) {
+        fprintf(stderr, "ERROR: cannot send packet to decoder. %s\n", av_err2str(ret));
+        return -1;
+    }
 
-            int64_t pkt_pts = pkt->pts;
-            int64_t pkt_dts = pkt->dts;
-            int64_t frame_pts = ctx->frame->pts;
-            int64_t frame_pts_ms = av_rescale_q(frame_pts, ctx->decoder->time_base, (AVRational){1, 1000});
+    while (ret >= 0) {
+        ret = avcodec_receive_frame(ctx->decoder, ctx->frame);
+        if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
+            break;
+        } else if (ret < 0) {
+            fprintf(stderr, "ERROR: cannot receive frame from decoder...\n");
+            return -1;
 
-            static bool go_fast = false;
-            static bool go_super_fast = false;
-
-            const int upper_threshold = 2;       // start going fast if queue >= 3
-            const int lower_threshold = 1;       // go slow again if queue <= 1
-            const int super_threshold = 4;       // start going super fast if queue >= 10
-            const int super_lower_threshold = 3; // stop super fast if queue <= 8
-
-            int queue_len = av_thread_message_queue_nb_elems(ctx->queue);
-
-            if (!go_super_fast && queue_len >= super_threshold) {
-                go_super_fast = true;
-            } else if (go_super_fast && queue_len <= super_lower_threshold) {
-                go_super_fast = false;
-            }
-
-            if (!go_fast && queue_len >= upper_threshold && !go_super_fast) {
-                go_fast = true;
-            } else if (go_fast && queue_len <= lower_threshold) {
-                go_fast = false;
-            }
-
-            int64_t sleep_us = 1e6 * ctx->decoder->framerate.den / ctx->decoder->framerate.num;
-
-            if (go_super_fast) {
-                sleep_us *= 0.35; // 4x speed
-            } else if (go_fast) {
-                sleep_us *= 0.7;  // 2x speed
-            }
-
-            av_usleep(sleep_us);
-
-            printf("Packet: pts=%" PRId64 " dts=%" PRId64 " size=%d | Frame: pts=%" PRId64 " ms=%" PRId64 " width=%d height=%d format=%s key_frame=%d | Sleeping: %" PRId64 " ms Queue Size: %d\n", 
-                    pkt_pts, 
-                    pkt_dts, 
-                    pkt->size, 
-                    frame_pts, 
-                    frame_pts_ms, 
-                    ctx->frame->width, ctx->frame->height, av_get_pix_fmt_name(ctx->frame->format), 
-                    ctx->frame->flags & AV_FRAME_FLAG_KEY, 
-                    sleep_us / 1000, av_thread_message_queue_nb_elems(ctx->queue));
-
-            sws_scale_frame(ctx->sws_ctx, ctx->rgb_frame, ctx->frame);
-            UpdateTexture(texture, ctx->rgb_frame->data[0]);
-            BeginDrawing();
-            DrawTexture(texture, 0, 0, WHITE);
-            EndDrawing();
         }
+        if (!ctx->sws_ctx) {
+            ctx->sws_ctx = sws_getContext(ctx->frame->width, ctx->frame->height, ctx->frame->format, width, height, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
+        }
+
+        int64_t pkt_pts = pkt->pts;
+        int64_t pkt_dts = pkt->dts;
+        int64_t frame_pts = ctx->frame->pts;
+        int64_t frame_pts_ms = av_rescale_q(frame_pts, ctx->decoder->time_base, (AVRational){1, 1000});
+
+        static bool go_fast = false;
+        static bool go_super_fast = false;
+
+        const int upper_threshold = 2;       // start going fast if queue >= 3
+        const int lower_threshold = 1;       // go slow again if queue <= 1
+        const int super_threshold = 4;       // start going super fast if queue >= 10
+        const int super_lower_threshold = 3; // stop super fast if queue <= 8
+
+        int queue_len = av_thread_message_queue_nb_elems(ctx->queue);
+
+        if (!go_super_fast && queue_len >= super_threshold) {
+            go_super_fast = true;
+        } else if (go_super_fast && queue_len <= super_lower_threshold) {
+            go_super_fast = false;
+        }
+
+        if (!go_fast && queue_len >= upper_threshold && !go_super_fast) {
+            go_fast = true;
+        } else if (go_fast && queue_len <= lower_threshold) {
+            go_fast = false;
+        }
+
+        int64_t sleep_us = 1e6 * ctx->decoder->framerate.den / ctx->decoder->framerate.num;
+
+        if (go_super_fast) {
+            sleep_us *= 0; // 4x speed
+        } else if (go_fast) {
+            sleep_us *= 0.7; // 2x speed
+        }
+
+        av_usleep(sleep_us);
+
+        printf("Packet: pts=%" PRId64 " dts=%" PRId64 " size=%d | Frame: pts=%" PRId64 " ms=%" PRId64 " width=%d height=%d format=%s key_frame=%d | Sleeping: %" PRId64 " ms Queue Size: %d\n", pkt_pts, pkt_dts, pkt->size, frame_pts, frame_pts_ms, ctx->frame->width, ctx->frame->height, av_get_pix_fmt_name(ctx->frame->format), ctx->frame->flags & AV_FRAME_FLAG_KEY, sleep_us / 1000,
+               av_thread_message_queue_nb_elems(ctx->queue));
+
+        sws_scale_frame(ctx->sws_ctx, ctx->rgb_frame, ctx->frame);
+        UpdateTexture(texture, ctx->rgb_frame->data[0]);
+        BeginDrawing();
+        DrawTexture(texture, 0, 0, WHITE);
+        EndDrawing();
     }
 
     av_packet_free(&pkt);
@@ -183,7 +188,7 @@ char *json_get_string(const char *json, const char *key) {
     const char *end = strchr(p, '"');
     if (!end) return NULL;
     size_t len = end - p;
-    char *res = (char *) malloc(len + 1);
+    char *res = (char *)malloc(len + 1);
     if (!res) return NULL;
     memcpy(res, p, len);
     res[len] = 0;
@@ -214,7 +219,7 @@ ssize_t read_exact(int fd, void *buf, size_t len) {
     }
     return total_read;
 }
- 
+
 void *keep_alive_thread(void *arg) {
     MediaPull *ctx = (MediaPull *)arg;
     while (ctx->keep_alive_running) {
@@ -254,13 +259,13 @@ void *reader_thread(void *arg) {
     uint32_t json_length = 0;
     read_exact(ctx->fd, &json_length, sizeof(json_length));
 
-    char *json_buf = (char *) calloc(json_length + 1, sizeof(char));
+    char *json_buf = (char *)calloc(json_length + 1, sizeof(char));
     read_exact(ctx->fd, json_buf, json_length);
 
-    printf("json_buf = %s", json_buf);
+    printf("json_buf = %s\n", json_buf);
 
-    uint32_t video_codec_id = (uint32_t) json_get_int(json_buf, "video_codec_id", 0);
-    uint32_t fps = (uint32_t) json_get_int(json_buf, "fps", 30);
+    uint32_t video_codec_id = (uint32_t)json_get_int(json_buf, "video_codec_id", 0);
+    uint32_t fps = (uint32_t)json_get_int(json_buf, "fps", 30);
 
     const AVCodec *codec = avcodec_find_decoder(video_codec_id);
     if (!codec) {
@@ -280,6 +285,8 @@ void *reader_thread(void *arg) {
     ctx->frame = av_frame_alloc();
     ctx->rgb_frame = av_frame_alloc();
     ctx->sws_ctx = NULL;
+
+    printf("Connected...\n");
 
     while (ctx->reader_running) {
         uint8_t header_buf[28];
@@ -316,4 +323,3 @@ void *reader_thread(void *arg) {
     ctx->reader_running = false;
     return NULL;
 }
-

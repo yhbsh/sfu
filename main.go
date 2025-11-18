@@ -7,12 +7,13 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 )
 
 const (
 	MaxPacketSize   = 100_000_000
-	DefaultQueueLen = 1024
+	DefaultQueueLen = 1024*1024
 	ListenAddr      = "0.0.0.0:1935"
 	HeaderSize      = 28
 )
@@ -181,6 +182,13 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 		}
 	}
 
+	file, err := os.Create(streamID)
+	if err != nil {
+		log.Println("ERROR: cannot create file:", err)
+		return
+	}
+	defer file.Close()
+
 	server.Mu.Lock()
 	state, ok := server.Streams[streamID]
 	if !ok {
@@ -197,8 +205,10 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 	state.AudioExtra = audioExtraData
 	server.Mu.Unlock()
 
-	log.Printf("Push client connected, streamID=%s, videoCodecID=%d, audioCodecID=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
-		streamID, int(videoCodecID), int(audioCodecID), int(fps), len(videoExtraData), len(audioExtraData))
+	log.Printf(
+		"Push client connected, streamID=%s, videoCodecID=%d, audioCodecID=%d, fps=%d, video_extradata=%d bytes, audio_extradata=%d bytes",
+		streamID, int(videoCodecID), int(audioCodecID), int(fps), len(videoExtraData), len(audioExtraData),
+	)
 
 	for {
 		bytes := make([]byte, HeaderSize)
@@ -227,6 +237,12 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 		}
 
 		packet := Packet{Header: h, Payload: payload}
+
+		if packet.Header.StreamIndex == 0 {
+			if _, err := file.Write(packet.Payload); err != nil {
+				log.Println("ERROR: cannot write packet:", err)
+			}
+		}
 
 		state.Mu.RLock()
 		select {
@@ -348,7 +364,6 @@ func (server *Server) publishPacket(pkt Packet, client *Client) error {
 
 func (server *Server) publisher(state *State) {
 	for pkt := range state.Queue {
-		logPacket(pkt)
 		state.Mu.RLock()
 		for client := range state.Clients {
 			if pkt.Header.StreamIndex == 0 && !client.FoundKeyFrame {
@@ -357,6 +372,7 @@ func (server *Server) publisher(state *State) {
 				}
 				client.FoundKeyFrame = true
 			}
+
 			if err := server.publishPacket(pkt, client); err != nil {
 				log.Printf("Failed to send packet to client: %v", err)
 			}

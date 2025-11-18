@@ -1,7 +1,7 @@
 cc = clang
 
 cflags = -O2
-ldflags = -lraylib -lavcodec -lavformat -lvpx -lswresample -lswscale -lavutil -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreMedia -framework CoreFoundation
+ldflags = -lraylib -lavcodec -lavformat -lx264 -lvpx -lswresample -lswscale -lavutil -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreMedia -framework CoreFoundation
 
 rule cc
   command = $cc $cflags $in -o $out $ldflags
