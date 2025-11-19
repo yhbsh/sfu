@@ -3,36 +3,8 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* --- API DECLARATIONS --- */
-
-void fill_pattern_radial(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-void fill_pattern_checker(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-void fill_pattern_vertical(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-void fill_pattern_horizontal(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-void fill_pattern_gradient(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-void fill_pattern_game_of_life(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame);
-void fill_pattern_neon(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame);
-void fill_pattern_water(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame);
-void fill_pattern_fractal_noise(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame);
-void fill_pattern_shader(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-void fill_pattern_shader2(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* PIXEL_H */
-
-#ifdef PIXEL_IMPL
-
-#include <math.h>
 #include <string.h>
-#include <stdint.h>
+#include <math.h>
 
 static inline uint8_t px_clamp_u8(int v) {
     if (v < 0) return 0;
@@ -52,7 +24,7 @@ static inline void px_fill_chroma_gray(int cw, int ch, uint8_t *U, int sU, uint8
     }
 }
 
-void fill_pattern_radial(int width, int height, uint8_t *Y, const int sY, uint8_t *U, const int sU, uint8_t *V, const int sV, int pts) {
+static inline void fill_pattern_radial(int width, int height, uint8_t *Y, const int sY, uint8_t *U, const int sU, uint8_t *V, const int sV, int pts) {
     const int cw = width / 2;
     const int ch = height / 2;
 
@@ -105,7 +77,7 @@ void fill_pattern_radial(int width, int height, uint8_t *Y, const int sY, uint8_
     }
 }
 
-void fill_pattern_checker(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
+static inline void fill_pattern_checker(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
     const int cw = width / 2;
     const int ch = height / 2;
 
@@ -122,7 +94,7 @@ void fill_pattern_checker(int width, int height, uint8_t *Y, int sY, uint8_t *U,
     px_fill_chroma_gray(cw, ch, U, sU, V, sV);
 }
 
-void fill_pattern_vertical(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
+static inline void fill_pattern_vertical(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
     const int cw = width / 2;
     const int ch = height / 2;
 
@@ -138,7 +110,7 @@ void fill_pattern_vertical(int width, int height, uint8_t *Y, int sY, uint8_t *U
     px_fill_chroma_gray(cw, ch, U, sU, V, sV);
 }
 
-void fill_pattern_horizontal(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
+static inline void fill_pattern_horizontal(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
     const int cw = width / 2;
     const int ch = height / 2;
 
@@ -156,7 +128,7 @@ void fill_pattern_horizontal(int width, int height, uint8_t *Y, int sY, uint8_t 
     px_fill_chroma_gray(cw, ch, U, sU, V, sV);
 }
 
-void fill_pattern_gradient(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
+static inline void fill_pattern_gradient(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
     const int cw = width / 2;
     const int ch = height / 2;
 
@@ -183,7 +155,7 @@ static inline double neon_complex_wave(int x, int y, double phase, double freq) 
     return neon_modulate_intensity(r, a, phase, freq);
 }
 
-void fill_pattern_neon(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
+static inline void fill_pattern_neon(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
     const double frequency_base = 0.08;
     const double color_shift    = frame * 0.04;
 
@@ -212,7 +184,7 @@ void fill_pattern_neon(int width, int height, uint8_t *Y, int sY, uint8_t *U, in
     }
 }
 
-void fill_pattern_game_of_life(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
+static inline void fill_pattern_game_of_life(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
     const int w = width;
     const int h = height;
     static uint8_t grid[1080][1920];
@@ -349,7 +321,7 @@ static void init_layer(LifeLayer *L, int w, int h) {
         }
 }
 
-static void update_layer(LifeLayer *L) {
+static inline void update_layer(LifeLayer *L) {
     int w = L->w, h = L->h;
 
     for (int y = 0; y < h; y++) {
@@ -382,11 +354,11 @@ static void update_layer(LifeLayer *L) {
         }
 }
 
-static uint8_t clamp8(int v) {
+static inline uint8_t clamp8(int v) {
     return v < 0 ? 0 : (v > 255 ? 255 : v);
 }
 
-void fill_pattern_game_of_life3(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
+static inline void fill_pattern_game_of_life3(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
     int cw = width;
     int ch = height;
 
@@ -445,7 +417,7 @@ void fill_pattern_game_of_life3(int width, int height, uint8_t *Y, int sY, uint8
     }
 }
 
-void fill_pattern_game_of_life2(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
+static inline void fill_pattern_game_of_life2(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
     int cw = width  / 2;
     int ch = height / 2;
 
@@ -546,7 +518,7 @@ static inline double water_complex_wave(int x, int y, double phase, double freq)
     return water_modulate(r, a, phase, freq);
 }
 
-void fill_pattern_water(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
+static inline void fill_pattern_water(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
     const double frequency_base = 0.05;
     const double phase_shift    = frame * 0.03;
     const double color_shift    = frame * 0.02;
@@ -590,7 +562,7 @@ static inline double fractal_complex_wave(int x, int y, double phase, double fre
     return fractal_modulate_intensity(r, a, phase, freq, max_radius_effect);
 }
 
-void fill_pattern_fractal_noise(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
+static inline void fill_pattern_fractal_noise(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int frame) {
     const int max_radius_effect = 3;
     const double frequency_base = 0.04;
     const double phase_shift    = frame * 0.02;
@@ -641,11 +613,11 @@ void fill_pattern_fractal_noise(int width, int height, uint8_t *Y, int sY, uint8
     }
 }
 
-static float clamp01(float x) {
+static inline float clamp01(float x) {
     return x < 0.f ? 0.f : (x > 1.f ? 1.f : x);
 }
 
-static void rgb_to_yuv(float r, float g, float b, uint8_t *y, uint8_t *u, uint8_t *v) {
+static inline void rgb_to_yuv(float r, float g, float b, uint8_t *y, uint8_t *u, uint8_t *v) {
     float Yf = 0.299f*r + 0.587f*g + 0.114f*b;
     float Uf = -0.169f*r - 0.331f*g + 0.500f*b + 0.5f;
     float Vf =  0.500f*r - 0.419f*g - 0.081f*b + 0.5f;
@@ -654,8 +626,8 @@ static void rgb_to_yuv(float r, float g, float b, uint8_t *y, uint8_t *u, uint8_
     *v = (uint8_t)(clamp01(Vf) * 255.f);
 }
 
-void fill_pattern_shader(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
-    float t = pts*0.010;
+static inline void fill_pattern_shader(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
+    float t = pts*0.025;
 
     for (int y = 0; y < height; y++) {
         uint8_t *rowY = Y + y * sY;
@@ -715,7 +687,7 @@ void fill_pattern_shader(int width, int height, uint8_t *Y, int sY, uint8_t *U, 
     }
 }
 
-void fill_pattern_shader2(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
+static inline void fill_pattern_shader2(int width, int height, uint8_t *Y, int sY, uint8_t *U, int sU, uint8_t *V, int sV, int pts) {
     double t = pts * 0.03;
     for (int y = 0; y < height; y++) {
         uint8_t *rowY = Y + y * sY;

@@ -1,13 +1,18 @@
-default: x264 x265 avf_x264 avf_x265
+CC = clang -O3 -march=native
+LIBS = -lswscale -lavutil -lx264 -lx265 -lc++ -laom
+FW = -framework AVFoundation -framework Foundation -framework CoreVideo -framework CoreMedia -framework CoreGraphics
 
-x265: x265.c common.h
-	clang -O3 -o x265 x265.c -lx265 -lc++
+SRC = $(wildcard *.c *.m)
+BIN = $(SRC:.c=)
+BIN := $(BIN:.m=)
 
-x264: x264.c common.h
-	clang -O3 -o x264 x264.c -lswscale -lavutil -lx264 -framework AVFoundation -framework Foundation -framework CoreVideo -framework CoreMedia -framework CoreGraphics
+all: $(BIN)
 
-avf_x264: avf_x264.m common.h
-	clang -O3 -o avf_x264 avf_x264.m -lswscale -lavutil -lx264 -framework AVFoundation -framework Foundation -framework CoreVideo -framework CoreMedia -framework CoreGraphics
+%: %.c common.h
+	$(CC) -o $@ $< $(LIBS) $(FW)
 
-avf_x265: avf_x265.m common.h
-	clang -O3 -o avf_x265 avf_x265.m -lc++ -lswscale -lavutil -lx265 -framework AVFoundation -framework Foundation -framework CoreVideo -framework CoreMedia -framework CoreGraphics
+%: %.m common.h
+	$(CC) -o $@ $< $(LIBS) $(FW)
+
+clean:
+	rm -f $(BIN)
