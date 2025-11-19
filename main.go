@@ -237,6 +237,7 @@ func handlePush(conn net.Conn, header map[string]any, server *Server) {
 		}
 
 		packet := Packet{Header: h, Payload: payload}
+		logPacket(packet)
 
 		if packet.Header.StreamIndex == 0 {
 			if _, err := file.Write(packet.Payload); err != nil {
