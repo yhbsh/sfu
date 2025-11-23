@@ -16,7 +16,7 @@ typedef enum {
     CODEC_HEVC = 173,
     CODEC_AV1 = 225,
     CODEC_AAC = 86018,
-} RtpCodecID;
+} RTP_Codec_ID;
 
 typedef struct {
     x264_t *x264;
@@ -32,19 +32,19 @@ typedef struct {
     // TODO: implement
 } AV1;
 
-typedef struct RtpContext {
+typedef struct RTP_Context {
     int fd;
-    RtpCodecID video_codec_id;
-    RtpCodecID audio_codec_id;
+    RTP_Codec_ID video_codec_id;
+    RTP_Codec_ID audio_codec_id;
     union {
         H264 h264;
         Hevc hevc;
         AV1 av1;
     } codec;
-} RtpContext;
+} RTP_Context;
 
-static inline int rtp_open(RtpContext **out_ctx, const char *address, short port, const char *stream_id, int w, int h, int fps, int gop, int bitrate, int video_codec_id, int audio_codec_id, int sample_rate, int channels) {
-    RtpContext *ctx = calloc(1, sizeof(RtpContext));
+static inline int rtp_open(RTP_Context **out_ctx, const char *address, short port, const char *stream_id, int w, int h, int fps, int gop, int bitrate, int video_codec_id, int audio_codec_id, int sample_rate, int channels) {
+    RTP_Context *ctx = calloc(1, sizeof(RTP_Context));
     *out_ctx = ctx;
 
     ctx->fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -174,7 +174,7 @@ static inline int rtp_open(RtpContext **out_ctx, const char *address, short port
     return 0;
 }
 
-static inline int rtp_write_nals(RtpContext *ctx, unsigned char **units, int *sizes, int count, long long pts, long long dts, int is_key, int si) {
+static inline int rtp_write_nals(RTP_Context *ctx, unsigned char **units, int *sizes, int count, long long pts, long long dts, int is_key, int si) {
     int size = 0;
     for (int i = 0; i < count; i++) size += sizes[i];
 
@@ -200,7 +200,7 @@ static inline int rtp_write_nals(RtpContext *ctx, unsigned char **units, int *si
     return size;
 }
 
-static inline int rtp_encode_write(RtpContext *ctx, int pts) {
+static inline int rtp_encode_write(RTP_Context *ctx, int pts) {
     switch (ctx->video_codec_id) {
     case CODEC_H264: {
         x264_nal_t *nals = NULL;
@@ -263,7 +263,7 @@ static inline int rtp_encode_write(RtpContext *ctx, int pts) {
     return 0;
 }
 
-static inline void rtp_close(RtpContext *ctx) {
+static inline void rtp_close(RTP_Context *ctx) {
     switch (ctx->video_codec_id) {
     case CODEC_H264:
         x264_picture_clean(&ctx->codec.h264.in);

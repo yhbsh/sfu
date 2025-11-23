@@ -3,18 +3,18 @@
 #include "common.h"
 
 int main(void) {
-    RtpContext *rtp_ctx = NULL;
+    RTP_Context *rtp_ctx = NULL;
     if (rtp_open(&rtp_ctx, ADDRESS, PORT, STREAM_ID, W, H, FPS, GOP, BITRATE, CODEC_HEVC, CODEC_AAC, 44100, 2) < 0) {
         return -1;
     }
 
-    AVFContext *ctx = NULL;
+    AVF_Context *ctx = NULL;
     if (avf_camera_open(&ctx, FPS, W, H) < 0) {
         return -1;
     }
 
     for (int i = 0; i < NUM_FRAMES; i++) {
-        CVFrame frame = {0};
+        AVF_Frame frame = {0};
         avf_read_frame(ctx, &frame);
 
         switch (rtp_ctx->video_codec_id) {

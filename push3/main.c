@@ -2,7 +2,7 @@
 #include "common.h"
 
 int main(void) {
-    RtpContext *rtp_ctx = NULL;
+    RTP_Context *rtp_ctx = NULL;
     if (rtp_open(&rtp_ctx, ADDRESS, PORT, STREAM_ID, W, H, FPS, GOP, BITRATE, CODEC_HEVC, CODEC_AAC, 44100, 2) < 0) {
         return -1;
     }

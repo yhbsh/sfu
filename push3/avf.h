@@ -11,20 +11,20 @@
 #include <libavutil/threadmessage.h>
 #include <libswscale/swscale.h>
 
-typedef struct CVFrame {
+typedef struct AVF_Frame {
     uint8_t *data[3];
     int stride[3];
     int width;
     int height;
     int pixfmt;
     void *priv;
-} CVFrame;
+} AVF_Frame;
 
-typedef struct MsgPacket {
+typedef struct Message_Packet {
     CVPixelBufferRef buf;
-} MsgPacket;
+} Message_Packet;
 
-typedef struct AVFContext {
+typedef struct AVF_Context {
     AVCaptureSession *session;
     AVThreadMessageQueue *queue;
 
@@ -34,10 +34,10 @@ typedef struct AVFContext {
 
     SwsContext *sws;
     AVFrame *scaled;
-} AVFContext;
+} AVF_Context;
 
 @interface FrameDelegate : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
-@property(nonatomic, assign) AVFContext *ctx;
+@property(nonatomic, assign) AVF_Context *ctx;
 @end
 
 @implementation FrameDelegate
@@ -47,14 +47,14 @@ typedef struct AVFContext {
 
     CVPixelBufferRetain(imageBuffer);
 
-    MsgPacket pkt;
+    Message_Packet pkt;
     pkt.buf = imageBuffer;
 
     av_thread_message_queue_send(self.ctx->queue, &pkt, 0);
 }
 @end
 
-static inline int init_scaled_frame(AVFContext *ctx) {
+static inline int init_scaled_frame(AVF_Context *ctx) {
     ctx->scaled = av_frame_alloc();
 
     ctx->scaled->format = AV_PIX_FMT_YUV420P;
@@ -66,14 +66,14 @@ static inline int init_scaled_frame(AVFContext *ctx) {
     return 0;
 }
 
-static inline int avf_open_common(AVFContext **out_ctx, AVCaptureInput *input, int fps, int target_w, int target_h) {
-    AVFContext *ctx = calloc(1, sizeof(*ctx));
+static inline int avf_open_common(AVF_Context **out_ctx, AVCaptureInput *input, int fps, int target_w, int target_h) {
+    AVF_Context *ctx = calloc(1, sizeof(*ctx));
     if (!ctx) return -1;
 
     ctx->target_w = target_w;
     ctx->target_h = target_h;
 
-    if (av_thread_message_queue_alloc(&ctx->queue, 8, sizeof(MsgPacket)) < 0) {
+    if (av_thread_message_queue_alloc(&ctx->queue, 8, sizeof(Message_Packet)) < 0) {
         free(ctx);
         return -1;
     }
@@ -115,7 +115,7 @@ static inline int avf_open_common(AVFContext **out_ctx, AVCaptureInput *input, i
     return 0;
 }
 
-static inline int avf_camera_open(AVFContext **out_ctx, int fps, int target_w, int target_h) {
+static inline int avf_camera_open(AVF_Context **out_ctx, int fps, int target_w, int target_h) {
     @autoreleasepool {
         AVCaptureDevice *device = nil;
         AVCaptureDeviceDiscoverySession *discovery = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeBuiltInWideAngleCamera ] mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
@@ -139,7 +139,7 @@ static inline int avf_camera_open(AVFContext **out_ctx, int fps, int target_w, i
     }
 }
 
-static inline int avf_screen_open(AVFContext **out_ctx, int fps, int target_w, int target_h) {
+static inline int avf_screen_open(AVF_Context **out_ctx, int fps, int target_w, int target_h) {
     @autoreleasepool {
         CGDirectDisplayID displayID = CGMainDisplayID();
         AVCaptureScreenInput *input = [[AVCaptureScreenInput alloc] initWithDisplayID:displayID];
@@ -153,10 +153,10 @@ static inline int avf_screen_open(AVFContext **out_ctx, int fps, int target_w, i
     }
 }
 
-static inline int avf_read_frame(AVFContext *ctx, CVFrame *out_frame) {
+static inline int avf_read_frame(AVF_Context *ctx, AVF_Frame *out_frame) {
     if (!ctx || !out_frame || !ctx->running) return -1;
 
-    MsgPacket pkt;
+    Message_Packet pkt;
     if (av_thread_message_queue_recv(ctx->queue, &pkt, 0) < 0) return -1;
 
     CVPixelBufferRef buf = pkt.buf;
@@ -215,11 +215,11 @@ static inline int avf_read_frame(AVFContext *ctx, CVFrame *out_frame) {
     return 0;
 }
 
-static inline void avf_release_frame(CVFrame *frame) {
+static inline void avf_release_frame(AVF_Frame *frame) {
     (void)frame;
 }
 
-static inline void avf_close(AVFContext *ctx) {
+static inline void avf_close(AVF_Context *ctx) {
     if (!ctx) return;
     ctx->running = 0;
 
