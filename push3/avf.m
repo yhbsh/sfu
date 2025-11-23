@@ -4,8 +4,7 @@
 
 int main(void) {
     RtpContext *rtp_ctx = NULL;
-    RtpCodecID video_codec_id = CODEC_HEVC;
-    if (rtp_open(&rtp_ctx, ADDRESS, PORT, STREAM_ID, W, H, FPS, GOP, BITRATE, video_codec_id, CODEC_AAC, 44100, 2) < 0) {
+    if (rtp_open(&rtp_ctx, ADDRESS, PORT, STREAM_ID, W, H, FPS, GOP, BITRATE, CODEC_HEVC, CODEC_AAC, 44100, 2) < 0) {
         return -1;
     }
 
@@ -18,7 +17,7 @@ int main(void) {
         CVFrame frame = {0};
         avf_read_frame(ctx, &frame);
 
-        switch (video_codec_id) {
+        switch (rtp_ctx->video_codec_id) {
             case CODEC_H264:
                 rtp_ctx->codec.h264.in.img.i_csp = X264_CSP_I420;
                 rtp_ctx->codec.h264.in.img.i_plane = 3;
